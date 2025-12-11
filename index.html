@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>İhracat Fazlası - Hibrit Kayıt</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- İkon Seti -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #000;
+            color: white;
+            -webkit-tap-highlight-color: transparent;
+            overflow: hidden;
+            touch-action: manipulation; /* Çift tıklama zoom'unu engeller */
+        }
+
+        #camera-feed {
+            transform: scaleX(1);
+        }
+
+        /* Nabız Animasyonu */
+        .recording-pulse {
+            animation: pulse-red 1.5s infinite;
+        }
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="flex flex-col h-screen w-full max-w-md mx-auto relative">
+
+    <!-- KAMERA BÖLÜMÜ -->
+    <div class="relative flex-1 bg-black overflow-hidden rounded-b-3xl">
+        <video id="camera-feed" autoplay playsinline muted class="w-full h-full object-cover"></video>
+        
+        <!-- İzin Uyarısı -->
+        <div id="camera-permission-warning" class="hidden absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900 z-20">
+            <i class="ph ph-camera-slash text-5xl text-gray-500 mb-4"></i>
+            <h3 class="text-xl font-bold mb-2">Kameraya Erişilemedi</h3>
+            <button onclick="startCamera()" class="px-6 py-3 bg-white text-black rounded-full font-bold">Tekrar Dene</button>
+        </div>
+
+        <!-- Kamera Arayüzü -->
+        <div class="absolute inset-0 flex flex-col justify-between p-4 z-10 pointer-events-none">
+            <div class="flex justify-between items-center pointer-events-auto">
+                <div class="bg-black/40 backdrop-blur-md px-3 py-1 rounded-full text-xs font-medium border border-white/10">
+                    <span id="photo-count-badge">0</span> Fotoğraf
+                </div>
+                <button onclick="switchCamera()" class="w-10 h-10 bg-black/40 backdrop-blur-md rounded-full flex items-center justify-center text-white border border-white/10 active:bg-white/20">
+                    <i class="ph ph-arrows-clockwise text-xl"></i>
+                </button>
+            </div>
+
+            <div class="flex flex-col items-center gap-4 pointer-events-auto pb-6">
+                <div id="gallery-strip" class="w-full flex gap-2 overflow-x-auto hide-scrollbar min-h-[60px] px-2 snap-x"></div>
+                <button onclick="takePhoto()" class="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center bg-transparent active:bg-white/20 transition-all active:scale-95">
+                    <div class="w-16 h-16 bg-white rounded-full"></div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ALT PANEL -->
+    <div class="bg-white text-black rounded-t-3xl -mt-6 z-20 shadow-[0_-10px_40px_rgba(0,0,0,0.2)] flex flex-col h-auto min-h-[30vh]">
+        <div class="w-full flex justify-center pt-3 pb-1">
+            <div class="w-12 h-1.5 bg-gray-300 rounded-full"></div>
+        </div>
+
+        <div class="flex-1 px-6 py-4 flex flex-col justify-between">
+            <div>
+                <h3 class="font-bold text-gray-900 mb-1 flex items-center gap-2">
+                    <i class="ph ph-microphone text-lg"></i>
+                    Ürünü Anlat
+                </h3>
+                
+                <!-- Canlı Metin Alanı -->
+                <p id="live-transcript" class="text-xs text-gray-500 mb-4 italic min-h-[1.5em] transition-all">"Mikrofona dokun veya basılı tut..."</p>
+
+                <div class="bg-gray-100 rounded-2xl p-3 flex items-center justify-between gap-3 transition-colors select-none" id="recorder-container">
+                    <div id="recorder-prompt" class="flex-1 text-sm text-gray-500 pl-2">
+                        <strong>Tek Tık:</strong> Başlat/Bitir<br>
+                        <strong>Basılı Tut:</strong> Konuş
+                    </div>
+                    
+                    <!-- HİBRİT BUTON -->
+                    <!-- Event listener'ları JS tarafında ekliyoruz -->
+                    <button id="record-btn" class="w-14 h-14 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-transform touch-none">
+                        <i id="mic-icon" class="ph ph-microphone text-2xl pointer-events-none"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-4 pb-4">
+                <button onclick="submitProduct()" class="w-full bg-black text-white py-4 rounded-xl font-bold text-lg shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2">
+                    Yapay Zekaya Gönder
+                    <i class="ph ph-paper-plane-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="capture-canvas" class="hidden"></canvas>
+
+    <!-- SUCCESS MODAL -->
+    <div id="success-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-6">
+        <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" onclick="resetApp()"></div>
+        <div class="bg-white rounded-3xl p-8 w-full max-w-sm relative z-10 text-center shadow-2xl">
+            <div class="w-20 h-20 bg-green-500 text-white rounded-full flex items-center justify-center mx-auto mb-6">
+                <i class="ph ph-check text-4xl font-bold"></i>
+            </div>
+            <h3 class="text-2xl font-bold text-gray-900 mb-2">Kaydedildi!</h3>
+            <div class="bg-gray-50 p-4 rounded-xl text-left mb-6 border border-gray-100 max-h-40 overflow-y-auto">
+                <p class="text-xs text-gray-400 font-bold uppercase mb-1">Metin:</p>
+                <p id="final-transcript-display" class="text-sm text-gray-800 italic">...</p>
+                <p class="text-xs text-gray-400 font-bold uppercase mb-1 mt-3">Görsel:</p>
+                <p id="final-photo-count" class="text-sm text-gray-800">0 Fotoğraf</p>
+            </div>
+            <button onclick="resetApp()" class="w-full bg-gray-900 text-white py-4 rounded-2xl font-bold text-lg">Yeni Ürün</button>
+        </div>
+    </div>
+
+    <script>
+        // --- DEĞİŞKENLER ---
+        let photos = [];
+        let stream = null;
+        let facingMode = "environment";
+        
+        // Ses Mantığı
+        let recognition = null;
+        let finalTranscript = "";
+        let isListening = false;
+        
+        // Hibrit Buton Mantığı
+        let holdTimer = null;
+        let interactionMode = null; // 'tap' veya 'hold'
+        const HOLD_THRESHOLD = 250; // 250ms basılı tutarsa 'hold' modu sayılır
+
+        // --- TARAYICI DESTEĞİ ---
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'tr-TR';
+
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript + " ";
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
+                }
+                const liveText = finalTranscript + interimTranscript;
+                document.getElementById('live-transcript').innerText = liveText || "Dinliyorum...";
+                document.getElementById('live-transcript').classList.add('text-black');
+            };
+
+            recognition.onerror = (event) => { console.error(event.error); stopListeningUI(); };
+            recognition.onend = () => { if(isListening) stopListeningUI(); }; // Beklenmedik durmalarda UI düzelt
+        }
+
+        // --- HİBRİT BUTON MANTIĞI (ÖNEMLİ KISIM) ---
+        const recordBtn = document.getElementById('record-btn');
+
+        // Hem dokunmatik hem mouse için 'pointer' olaylarını kullanıyoruz
+        recordBtn.addEventListener('pointerdown', (e) => {
+            e.preventDefault(); // Seçim vb. engelle
+            
+            // Eğer zaten 'tap' moduyla kayıt yapıyorsak, basınca durdur
+            if (isListening && interactionMode === 'tap') {
+                stopRecording();
+                interactionMode = null;
+                return;
+            }
+
+            // Henüz mod belli değil, zamanlayıcıyı başlat
+            interactionMode = null; 
+            holdTimer = setTimeout(() => {
+                // Süre doldu, kullanıcı hala basıyor -> HOLD MODU
+                interactionMode = 'hold';
+                startRecording();
+            }, HOLD_THRESHOLD);
+        });
+
+        recordBtn.addEventListener('pointerup', (e) => {
+            e.preventDefault();
+            clearTimeout(holdTimer); // Zamanlayıcıyı iptal et
+
+            if (interactionMode === 'hold') {
+                // Basılı tutuyordu, şimdi bıraktı -> DURDUR
+                stopRecording();
+                interactionMode = null;
+            } else if (!isListening) {
+                // Zamanlayıcı dolmadı, demek ki kısa bastı (Tap) -> BAŞLAT (Toggle)
+                interactionMode = 'tap';
+                startRecording();
+            }
+            // Not: Eğer 'tap' modunda kayıt yaparken bastıysa, pointerdown'da zaten durdurduk.
+        });
+
+        // Parmağı butonun dışına kaydırırsa kaydı iptal et/durdur (Güvenlik)
+        recordBtn.addEventListener('pointerleave', (e) => {
+            if (interactionMode === 'hold') {
+                stopRecording();
+                interactionMode = null;
+            }
+            clearTimeout(holdTimer);
+        });
+
+
+        // --- SES FONKSİYONLARI ---
+        function startRecording() {
+            if (!recognition || isListening) return;
+            try {
+                recognition.start();
+                isListening = true;
+                
+                // UI Güncelle
+                const btn = document.getElementById('record-btn');
+                const prompt = document.getElementById('recorder-prompt');
+                const container = document.getElementById('recorder-container');
+                const icon = document.getElementById('mic-icon');
+                
+                btn.classList.add('recording-pulse', 'scale-110');
+                container.classList.add('bg-red-50', 'border', 'border-red-100');
+                
+                if (interactionMode === 'hold') {
+                    prompt.innerText = "Parmağını çekince duracak...";
+                } else {
+                    prompt.innerText = "Durdurmak için tekrar dokun...";
+                    icon.classList.remove('ph-microphone');
+                    icon.classList.add('ph-stop');
+                }
+                prompt.classList.add('text-red-500');
+
+            } catch (e) { console.error(e); }
+        }
+
+        function stopRecording() {
+            if (!recognition || !isListening) return;
+            recognition.stop();
+            // isListening = false; // onend eventinde UI düzelecek ama manuel de çağıralım
+            stopListeningUI();
+        }
+
+        function stopListeningUI() {
+            isListening = false;
+            const btn = document.getElementById('record-btn');
+            const prompt = document.getElementById('recorder-prompt');
+            const container = document.getElementById('recorder-container');
+            const icon = document.getElementById('mic-icon');
+            
+            btn.classList.remove('recording-pulse', 'scale-110');
+            container.classList.remove('bg-red-50', 'border', 'border-red-100');
+            
+            prompt.innerHTML = "<strong>Tek Tık:</strong> Başlat/Bitir<br><strong>Basılı Tut:</strong> Konuş";
+            prompt.classList.remove('text-red-500');
+            
+            icon.classList.add('ph-microphone');
+            icon.classList.remove('ph-stop');
+        }
+
+        // --- KAMERA & FOTOĞRAF (Eski Mantık) ---
+        async function startCamera() {
+            try {
+                if (stream) { stream.getTracks().forEach(track => track.stop()); }
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false
+                });
+                document.getElementById('camera-feed').srcObject = stream;
+                document.getElementById('camera-permission-warning').classList.add('hidden');
+            } catch (err) {
+                document.getElementById('camera-permission-warning').classList.remove('hidden');
+            }
+        }
+        function switchCamera() { facingMode = facingMode === "environment" ? "user" : "environment"; startCamera(); }
+        
+        function takePhoto() {
+            const video = document.getElementById('camera-feed');
+            const canvas = document.getElementById('capture-canvas');
+            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            const data = canvas.toDataURL('image/jpeg', 0.8);
+            photos.push(data);
+            
+            video.style.opacity = "0.5"; setTimeout(() => video.style.opacity = "1", 100);
+            
+            const div = document.createElement('div');
+            div.className = "relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 border-white shadow-lg snap-start";
+            div.innerHTML = `<img src="${data}" class="w-full h-full object-cover"><button onclick="this.parentElement.remove(); photos.pop(); updateBadge()" class="absolute inset-0 bg-black/30 opacity-0 hover:opacity-100 flex items-center justify-center text-white"><i class="ph ph-trash"></i></button>`;
+            document.getElementById('gallery-strip').appendChild(div);
+            updateBadge();
+        }
+        function updateBadge() { document.getElementById('photo-count-badge').innerText = photos.length; }
+
+        function submitProduct() {
+            if (photos.length === 0 && finalTranscript.trim() === "") { alert("Fotoğraf veya ses ekleyin."); return; }
+            document.getElementById('final-transcript-display').innerText = finalTranscript || "(Ses yok)";
+            document.getElementById('final-photo-count').innerText = photos.length + " Fotoğraf";
+            document.getElementById('success-modal').classList.remove('hidden');
+        }
+        function resetApp() { location.reload(); }
+
+        window.onload = startCamera;
+    </script>
+</body>
+</html>
